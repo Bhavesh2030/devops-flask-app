@@ -59,15 +59,16 @@ pipeline {
         bat "docker run --rm ${IMAGE_NAME}:${VERSION} bandit -r . || ver >NUL"
 
         // Trivy: use host install if present; otherwise skip (pipeline continues)
-        bat '''
-          where trivy >NUL 2>&1
-          if %ERRORLEVEL% EQU 0 (
-            echo Running Trivy scan...
-            trivy image --severity HIGH,CRITICAL --ignore-unfixed --no-progress %IMAGE_NAME%:%VERSION% || echo Trivy scan reported issues (continuing)
-          ) ELSE (
-            echo Trivy not installed - skipping image scan
-          )
-        '''
+       bat '''
+  echo Running Trivy (Dockerized)...
+  docker run --rm ^
+    -v //var/run/docker.sock:/var/run/docker.sock ^
+    -v C:\\Users\\%USERNAME%\\.cache\\trivy:/root/.cache/ ^
+    aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --no-progress %IMAGE_NAME%:%VERSION% ^
+    || echo Trivy scan reported issues (continuing)
+  ver >NUL
+'''
+
       }
     }
 
