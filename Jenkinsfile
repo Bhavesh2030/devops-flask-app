@@ -58,36 +58,21 @@ pipeline {
         // Bandit runs inside the built image
         bat "docker run --rm ${IMAGE_NAME}:${VERSION} bandit -r . || ver >NUL"
 
-        // Trivy: use host install if present; otherwise skip (pipeline continues)
-       bat '''
-  echo Running Trivy (Dockerized)...
-  docker run --rm ^
-    -v //var/run/docker.sock:/var/run/docker.sock ^
-    -v C:\\Users\\%USERNAME%\\.cache\\trivy:/root/.cache/ ^
-    aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --no-progress %IMAGE_NAME%:%VERSION% ^
-    || echo Trivy scan reported issues (continuing)
-  ver >NUL
-'''
-
+        // Trivy (optional). If not installed, skip cleanly; keep pipeline green.
+        bat '''
+          where trivy >NUL 2>&1 && (
+            echo Running Trivy scan...
+            trivy image --severity HIGH,CRITICAL --ignore-unfixed --no-progress %IMAGE_NAME%:%VERSION% || echo Trivy scan reported issues (continuing)
+          ) || (
+            echo Trivy not installed - skipping image scan
+          )
+          rem normalize exit code to success for optional step
+          ver >NUL
+        '''
       }
     }
 
-    stage('Deploy: Staging') {
-      steps {
-        bat """
-          echo IMAGE_NAME=${IMAGE_NAME} > .env.staging
-          echo IMAGE_TAG=${VERSION}>> .env.staging
-          docker compose -f docker-compose.staging.yml --env-file .env.staging pull
-          docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --force-recreate
-          timeout /t 3 >NUL
-        """
-        script {
-          def ok = bat(returnStatus: true, script: 'curl -fsS http://localhost:5000/health >NUL 2>&1') == 0
-          if (!ok) { error('Staging health check failed.') }
-        }
-      }
-    }
-
+    // ---- Move push BEFORE staging deploy ----
     stage('Release: Push to Registry') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'DOCKERHUB', usernameVariable: 'DH_USER', passwordVariable: 'DH_TOKEN')]) {
@@ -97,6 +82,24 @@ pipeline {
             docker push ${IMAGE_NAME}:latest
             docker logout
           """
+        }
+      }
+    }
+
+    stage('Deploy: Staging') {
+      steps {
+        bat """
+          echo IMAGE_NAME=${IMAGE_NAME} > .env.staging
+          echo IMAGE_TAG=${VERSION}>> .env.staging
+          rem pull may be a no-op locally; don't fail if registry hiccups
+          docker compose -f docker-compose.staging.yml --env-file .env.staging pull || ver >NUL
+          docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --force-recreate
+        """
+        // use PowerShell sleep to avoid redirection issues
+        bat 'powershell -NoProfile -Command "Start-Sleep -Seconds 3"'
+        script {
+          def ok = bat(returnStatus: true, script: 'curl -fsS http://localhost:5000/health >NUL 2>&1') == 0
+          if (!ok) { error('Staging health check failed.') }
         }
       }
     }
@@ -126,7 +129,7 @@ pipeline {
         bat """
           echo IMAGE_NAME=${IMAGE_NAME} > .env.prod
           echo IMAGE_TAG=${VERSION}>> .env.prod
-          docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+          docker compose -f docker-compose.prod.yml --env-file .env.prod pull || ver >NUL
           docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --force-recreate
         """
       }
