@@ -5,7 +5,7 @@ pipeline {
   environment {
     APP_NAME   = 'devops-flask-app'
     REGISTRY   = 'docker.io'
-    DOCKER_NS  = 'bhavesh530'                     // your Docker Hub username
+    DOCKER_NS  = 'bhavesh530'                   // your Docker Hub username
     IMAGE_NAME = "${REGISTRY}/${DOCKER_NS}/${APP_NAME}"   // docker.io/bhavesh530/devops-flask-app
   }
 
@@ -37,7 +37,7 @@ pipeline {
       steps {
         bat "docker run --rm ${IMAGE_NAME}:${VERSION} pylint app.py || ver >NUL"
         script {
-          // Optional SonarQube (skips if not configured)
+          // Optional SonarQube (skips cleanly if not configured)
           try {
             withSonarQubeEnv('MySonar') {
               bat """
@@ -55,14 +55,19 @@ pipeline {
 
     stage('Security') {
       steps {
+        // Bandit runs inside the built image
         bat "docker run --rm ${IMAGE_NAME}:${VERSION} bandit -r . || ver >NUL"
-     bat '''
-  docker run --rm ^
-    -v //var/run/docker.sock:/var/run/docker.sock ^
-    -v C:\\Users\\%USERNAME%\\.cache\\trivy:/root/.cache/ ^
-    aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --no-progress %IMAGE_NAME%:%VERSION% ^
-    || echo Trivy scan reported issues (continuing)
-        """
+
+        // Trivy: use host install if present; otherwise skip (pipeline continues)
+        bat '''
+          where trivy >NUL 2>&1
+          if %ERRORLEVEL% EQU 0 (
+            echo Running Trivy scan...
+            trivy image --severity HIGH,CRITICAL --ignore-unfixed --no-progress %IMAGE_NAME%:%VERSION% || echo Trivy scan reported issues (continuing)
+          ) ELSE (
+            echo Trivy not installed - skipping image scan
+          )
+        '''
       }
     }
 
@@ -75,7 +80,6 @@ pipeline {
           docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --force-recreate
           timeout /t 3 >NUL
         """
-        // health check (bat supports returnStatus)
         script {
           def ok = bat(returnStatus: true, script: 'curl -fsS http://localhost:5000/health >NUL 2>&1') == 0
           if (!ok) { error('Staging health check failed.') }
@@ -103,9 +107,9 @@ pipeline {
           if (!ok) {
             echo 'Health check failed — sending alert (if webhook configured).'
             withCredentials([string(credentialsId: 'SLACK_WEBHOOK', variable: 'SLACK_URL')]) {
-              bat """powershell -NoProfile -Command ^
-                "if (\\\"$env:SLACK_URL\\\") { Invoke-RestMethod -Method Post -ContentType 'application/json' -Body '{\\"text\\":\\"🚨 devops-flask-app health check FAILED on staging\\"}' -Uri $env:SLACK_URL }"
-              """
+              bat '''powershell -NoProfile -Command ^
+                "if ($env:SLACK_URL) { Invoke-RestMethod -Method Post -ContentType 'application/json' -Body '{\"text\":\"🚨 devops-flask-app health check FAILED on staging\"}' -Uri $env:SLACK_URL }"
+              '''
             }
             error('Monitoring failed.')
           } else {
