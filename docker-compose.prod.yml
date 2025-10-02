@@ -1,0 +1,6 @@
+services:
+  web:
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    restart: unless-stopped
+    ports:
+      - "80:5000"
