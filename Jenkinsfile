@@ -56,10 +56,12 @@ pipeline {
     stage('Security') {
       steps {
         bat "docker run --rm ${IMAGE_NAME}:${VERSION} bandit -r . || ver >NUL"
-        bat """
-          trivy --version >NUL 2>&1 && ^
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed --no-progress ${IMAGE_NAME}:${VERSION} || ^
-          echo Trivy not installed - skipping image scan
+     bat '''
+  docker run --rm ^
+    -v //var/run/docker.sock:/var/run/docker.sock ^
+    -v C:\\Users\\%USERNAME%\\.cache\\trivy:/root/.cache/ ^
+    aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --no-progress %IMAGE_NAME%:%VERSION% ^
+    || echo Trivy scan reported issues (continuing)
         """
       }
     }
