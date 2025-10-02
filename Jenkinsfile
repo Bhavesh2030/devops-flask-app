@@ -2,12 +2,12 @@ pipeline {
   agent any
   options { timestamps(); ansiColor('xterm') }
 
-  environment {
-    APP_NAME   = 'devops-flask-app'
-    REGISTRY   = 'docker.io'
-    DOCKER_NS  = 'bhavesh2030'          // <- change if your Docker Hub username differs
-    IMAGE_NAME = "${REGISTRY}/${DOCKER_NS}/${APP_NAME}"
-  }
+environment {
+  APP_NAME   = 'devops-flask-app'
+  REGISTRY   = 'docker.io'
+  DOCKER_NS  = 'bhavesh530'           // your Docker Hub username
+  IMAGE_NAME = "${REGISTRY}/${DOCKER_NS}/${APP_NAME}"   // docker.io/bhavesh530/devops-flask-app
+}
 
   stages {
     stage('Checkout') {
